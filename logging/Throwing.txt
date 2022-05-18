@@ -5,8 +5,8 @@ running Throwing, 0.0 noise, 1-goal
 
 running Throwing, 0.0 noise, 2-goal ratio with delta-probability
 
-running Throwing, 0.0 noise, 2-goal ratio with delta-probability
+running Throwing, 0.0 noise, 1-goal
 
 running Throwing, 0.0 noise, 2-goal ratio with delta-probability
 
-running Throwing, 0.0 noise, 2-goal ratio with delta-probability
+running Throwing, 0.0 noise, 1-goal

@@ -1,4 +1,0 @@
-
-running Throw, 0.0 noise, 2-goal ratio with delta-probability
-
-running Throw, 0.0 noise, 1-goal

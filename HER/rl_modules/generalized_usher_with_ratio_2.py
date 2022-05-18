@@ -148,12 +148,9 @@ class ddpg_agent:
             ev = self._eval_agent()
             success_rate, reward, value = ev['success_rate'], ev['reward_rate'], ev['value_rate']
 
-            import time
-            time.sleep(np.random.rand()*5)
-            with open(self.recording_path, "a") as file: 
-                file.write(f"{epoch}, {success_rate:.3f}, {reward:.3f}, {value:.3f}\n")
-
             if MPI.COMM_WORLD.Get_rank() == 0:
+                with open(self.recording_path, "a") as file: 
+                    file.write(f"{epoch}, {success_rate:.3f}, {reward:.3f}, {value:.3f}\n")
                 # print('[{}] epoch is: {}, eval success rate is: {:.3f}, average reward is: {:.3f}'.format(datetime.now(), epoch, success_rate, reward))
                 print(f'[{datetime.now()}] epoch is: {epoch}, '
                     f'eval success rate is: {success_rate:.3f}, '
