@@ -36,7 +36,7 @@ class Throwing(gym.core.GoalEnv):
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.setGravity(0, 0, -10)
         p.setTimeStep(self.SIMULATION_STEP_DELAY)
-        plane = module_path + "./urdf/plane.urdf"
+        plane = module_path + "/urdf/plane.urdf"
         self.planeID = p.loadURDF(plane)
 
         self.robot.load()
@@ -302,7 +302,7 @@ def make_throwing_env():
                         (0, 0, 1),
                         0.1, 5, (320, 320), 40)
     robot = HuskyUR5((-0.2, 0.5, 0.5), (0, 0, 0))
-    return  Throwing(robot, ycb_models, camera, vis=True)
+    return  Throwing(robot, ycb_models, camera, vis=False)
 
 if __name__ == "__main__":
     env = make_throwing_env()

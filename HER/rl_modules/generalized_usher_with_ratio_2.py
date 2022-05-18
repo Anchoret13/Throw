@@ -67,6 +67,16 @@ class ddpg_agent:
         self.o_norm = normalizer(size=env_params['obs'], default_clip_range=self.args.clip_range)
         self.g_norm = normalizer(size=env_params['goal'], default_clip_range=self.args.clip_range)
         # create the dict for store the model
+        if args.two_goal and args.apply_ratio: 
+            agent_name = "usher"
+        elif args.two_goal:
+            agent_name = "two-goal"
+        elif args.replay_k == 0:
+            agent_name = "q-learning"
+        else:
+            agent_name = "her"
+        key = f"name_{args.env_name}__noise_{args.action_noise}__agent_{agent_name}.txt"
+        self.recording_path = "logging/recordings/" + key
         if MPI.COMM_WORLD.Get_rank() == 0:
             if not os.path.exists(self.args.save_dir):
                 os.mkdir(self.args.save_dir)
@@ -74,6 +84,9 @@ class ddpg_agent:
             self.model_path = os.path.join(self.args.save_dir, self.args.env_name)
             if not os.path.exists(self.model_path):
                 os.mkdir(self.model_path)
+
+            with open(self.recording_path, "a") as file: 
+                file.write("")
 
     def learn(self):
         """
@@ -134,6 +147,12 @@ class ddpg_agent:
             # start to do the evaluation
             ev = self._eval_agent()
             success_rate, reward, value = ev['success_rate'], ev['reward_rate'], ev['value_rate']
+
+            import time
+            time.sleep(np.random.rand()*5)
+            with open(self.recording_path, "a") as file: 
+                file.write(f"{epoch}, {success_rate:.3f}, {reward:.3f}, {value:.3f}\n")
+
             if MPI.COMM_WORLD.Get_rank() == 0:
                 # print('[{}] epoch is: {}, eval success rate is: {:.3f}, average reward is: {:.3f}'.format(datetime.now(), epoch, success_rate, reward))
                 print(f'[{datetime.now()}] epoch is: {epoch}, '
@@ -205,6 +224,19 @@ class ddpg_agent:
     def _soft_update_target_network(self, target, source):
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_((1 - self.args.polyak) * param.data + self.args.polyak * target_param.data)
+            
+    def get_input_tensor(self, obs, goal, policy_goal):
+        obs_norm = self.o_norm.normalize(obs)
+        g_norm = self.g_norm.normalize(goal)
+        pol_g_norm = self.g_norm.normalize(policy_goal)
+
+        inputs_norm = np.concatenate([obs_norm, g_norm], axis=1)
+        inputs_norm_pol = np.concatenate([obs_norm, g_norm, pol_g_norm], axis=1)
+
+        inputs_norm_tensor = torch.tensor(inputs_norm, dtype=torch.float32)
+        inputs_norm_tensor_pol = torch.tensor(inputs_norm_pol, dtype=torch.float32)
+
+        return inputs_norm_tensor, inputs_norm_tensor_pol
 
     # update the network
     def _update_network(self):
@@ -243,7 +275,7 @@ class ddpg_agent:
         exact_goal_tensor = torch.tensor(transitions['exact_goal'], dtype=torch.float32) 
         t = torch.tensor(transitions['t_remaining'], dtype=torch.float32) 
         her_used = torch.tensor(transitions['her_used'], dtype=torch.float32) 
-        map_t = lambda t: -1 + 2*t/self.env_params['max_timesteps']
+        map_t = lambda t: -1 + 2*t/self.env_params['max_timesteps'] if self.args.apply_ratio else t*0
         if self.args.cuda:
             inputs_norm_tensor = inputs_norm_tensor.cuda()
             inputs_next_norm_tensor = inputs_next_norm_tensor.cuda()
@@ -279,30 +311,53 @@ class ddpg_agent:
         q0, p0 = self.critic_network(inputs_norm_tensor, map_t(t), actions_tensor, return_p=True)
 
         if self.args.apply_ratio: 
-            true_c = self.args.ratio_offset
-            # true_c = .04#.0025 #make as small as can be allowed without compromising stability
-            on_value_true_c = 0#.1
-            # true_c = .1#.0025 #make as small as can be allowed without compromising stability
-            c = .1
-            low_range = False
-            if low_range: 
-                p_num = p0.detach()/clip_return + 1
-                p_denom =  p_next_value.detach()/clip_return + 1
-            else:
-                p_num = p0.detach()
-                p_denom =  p_next_value.detach()
-            numerator = c + q0.detach()/clip_return + 1
-            denomenator = c + q_next_value.detach()/clip_return + 1
-            # assert c == self.args.ratio_offset
+            _, on_policy_input = self.get_input_tensor(transitions['obs'], transitions['ag_next'], transitions['policy_g'])
+            _ , realized_p = self.critic_network(on_policy_input, map_t(t), actions_tensor, return_p=True)
+            _, fuzz_input = self.get_input_tensor(transitions['obs'], transitions['alt_g'], transitions['policy_g'])
+            _, fuzz_input_next = self.get_input_tensor(transitions['obs'], transitions['alt_g'], transitions['policy_g'])
 
-            # ratio = (numerator)/(denomenator)
-            addon = torch.ones_like(p_num)*on_value_true_c
-            addon[transitions['her_used']] *= 0
-            true_ratio = (true_c+addon+p_num)/(true_c+addon+p_denom)
-            # ratio[transitions['her_used']] = true_ratio
-            torch.clamp(true_ratio, min=1/(1+self.args.ratio_clip), max=1+self.args.ratio_clip)
-            ratio = true_ratio.detach() #+ addon
-            critic_loss = (ratio*((target_q_value - q0).pow(2))).mean() + (target_p_value - p0).pow(2).mean()*clip_return
+            q_fuzz, p_fuzz = self.critic_network(fuzz_input, map_t(t), actions_tensor, return_p=True)
+            q_fuzz_next, p_fuzz_next = self.critic_target_network(fuzz_input_next, map_t(t), actions_tensor, return_p=True)
+
+            true_c = self.args.ratio_offset
+            p_num = p0.detach()
+            p_denom =  p_next_value.detach()*.5 + p_num*.5
+
+            c = .01
+            true_ratio = (p_num+c)/(p_denom + c)
+            clip_scale = 1+self.args.ratio_clip#1.4
+            true_ratio = torch.clamp(true_ratio, 1/clip_scale, clip_scale)
+            p_ratio = true_ratio*her_used + (1-her_used)
+            q_ratio = torch.clamp((p0.detach() + c)/(p_next_value.detach() + c), 1/clip_scale, clip_scale)*her_used + (1-her_used)
+
+            true_fuzz_ratio = (p_fuzz.detach() + c)/(.5*p_fuzz.detach() + .5*p_fuzz_next.detach() + c)
+            true_fuzz_ratio = torch.clamp(true_fuzz_ratio, 1/clip_scale, clip_scale)
+
+            critic_loss = ((q_ratio*(target_q_value - q0).pow(2) + p_ratio*(((p0).pow(2)  - (t-1)/t*(p0*target_p_value))*her_used)).mean()
+                    + (true_fuzz_ratio*her_used*((p_fuzz).pow(2)- (t-1)/t*p_fuzz*p_fuzz_next)).mean()) - 2*(realized_p/t).mean()
+            # true_c = self.args.ratio_offset
+            # # true_c = .04#.0025 #make as small as can be allowed without compromising stability
+            # on_value_true_c = 0#.1
+            # # true_c = .1#.0025 #make as small as can be allowed without compromising stability
+            # c = .1
+            # low_range = False
+            # if low_range: 
+            #     p_num = p0.detach()/clip_return + 1
+            #     p_denom =  p_next_value.detach()/clip_return + 1
+            # else:
+            #     p_num = p0.detach()
+            #     p_denom =  p_next_value.detach()
+            # numerator = c + q0.detach()/clip_return + 1
+            # denomenator = c + q_next_value.detach()/clip_return + 1
+            # # assert c == self.args.ratio_offset
+
+            # # ratio = (numerator)/(denomenator)
+            # addon = torch.ones_like(p_num)*on_value_true_c
+            # addon[transitions['her_used']] *= 0
+            # true_ratio = (true_c+addon+p_num)/(true_c+addon+p_denom)
+            # # ratio[transitions['her_used']] = true_ratio
+            # ratio = true_ratio.detach() #+ addon
+            # critic_loss = (ratio*((target_q_value - q0).pow(2))).mean() + (target_p_value - p0).pow(2).mean()*clip_return
         else: 
             ratio = torch.ones_like(p0).detach()
             critic_loss = (ratio*((target_q_value - q0).pow(2))).mean() + 0*(target_p_value - p0).pow(2).mean()*clip_return

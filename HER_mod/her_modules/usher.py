@@ -53,6 +53,8 @@ class her_sampler:
         transitions['exact_goal'][np.where(future_offset[her_indexes] == 0)] = 1
         transitions['exact_goal'] *= mask
         transitions['t_remaining'] = T - t_samples
+        transitions['alt_g'] = transitions['g'].copy() + np.random.normal(scale=0.1,size=transitions['g'].shape)
+        np.random.shuffle(transitions['alt_g'])
         if self.two_goal:
             transitions['policy_g'] = transitions['g'].copy()
             transitions['g'][her_indexes] = future_ag 
@@ -66,6 +68,7 @@ class her_sampler:
         transitions['sampled_g'] = future_sampled_ag
         # to get the params to re-compute reward
         transitions['r'] = np.expand_dims(self.reward_func(transitions['ag_next'], transitions['g'], None), 1)
+        transitions['alt_r'] = np.expand_dims(self.reward_func(transitions['ag_next'], transitions['alt_g'], None), 1)
         transitions['exact_goal'] = np.expand_dims(transitions['exact_goal'], 1)
         transitions['t_remaining'] = np.expand_dims(transitions['t_remaining'], 1)
         transitions = {k: transitions[k].reshape(batch_size, *transitions[k].shape[1:]) for k in transitions.keys()}
@@ -74,7 +77,6 @@ class her_sampler:
         # pdb.set_trace()
 
         return transitions
-
 
 
     def sample_ddpg_transitions(self, episode_batch, batch_size_in_transitions):

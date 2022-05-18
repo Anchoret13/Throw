@@ -94,12 +94,12 @@ def launch(args):
                 env_type = "linear"
             print(f"env type: {env_type}")
             env = TimeLimit(mapmaker(env_type=env_type), max_episode_steps=max_steps)
-    # elif "ContinuousAcrobot" in args.env_name:
-    #     env = TimeLimit(ContinuousAcrobotEnv(), max_episode_steps=50)
-    # elif "2DNav" in args.env_name or "2Dnav" in args.env_name: 
-    #     env = gym.make("Limited-Range-Based-Navigation-2d-Map8-Goal0-v0")
-    # else:
-    #     env = gym.make(args.env_name)
+    elif "ContinuousAcrobot" in args.env_name:
+        env = TimeLimit(ContinuousAcrobotEnv(), max_episode_steps=50)
+    elif "2DNav" in args.env_name or "2Dnav" in args.env_name: 
+        env = gym.make("Limited-Range-Based-Navigation-2d-Map8-Goal0-v0")
+    else:
+        env = gym.make(args.env_name)
 
     env = ActionRandomnessWrapper(env, args.action_noise)
 

@@ -16,9 +16,12 @@ from HER_mod.rl_modules.replay_buffer import replay_buffer
 # from HER_mod.rl_modules.models import actor
 from HER_mod.rl_modules.models import sac_actor as actor
 from HER_mod.rl_modules.models import T_conditioned_ratio_critic as critic
+from HER_mod.rl_modules.value_map import *
+from HER_mod.rl_modules.velocity_env import *
 from HER_mod.rl_modules.hyperparams import POS_LIMIT
 
 import pdb
+import time
 """
 ddpg with HER (MPI-version)
 
@@ -151,23 +154,68 @@ class ValueEstimator:
 
         # ratio = (numerator)/(denomenator)
         # true_ratio = p_num/p_denom
-        true_ratio = (true_c+(1-true_c)*p_num)/(true_c+(1-true_c)*p_denom)
-        clip_scale = 1+self.args.ratio_clip#1.4
-        true_ratio = torch.clamp(true_ratio, 1/clip_scale, clip_scale)
+        
+        method = "fuzz"
+        if method == "fuzz": 
+            _, fuzz_input = self.get_input_tensor(transitions['obs'], transitions['alt_g'], transitions['policy_g'])
+            _, fuzz_input_next = self.get_input_tensor(transitions['obs'], transitions['alt_g'], transitions['policy_g'])
 
-        critic_loss = (true_ratio*((target_q_value - q0).pow(2))).mean() + (target_p_value - p0).pow(2).mean()*clip_return
+            q_fuzz, p_fuzz = self.critic_1(fuzz_input, map_t(t), actions_tensor, return_p=True)
+            q_fuzz_next, p_fuzz_next = self.critic_target_1(fuzz_input_next, map_t(t), actions_tensor, return_p=True)
+
+            true_c = self.args.ratio_offset
+            q_alpha = .0
+            p_alpha = .5
+            c = true_c
+            def indep_w(alpha, clip=False):  
+                x = (p_fuzz.detach() + c)/(alpha*p_fuzz.detach() + (1-alpha)*p_fuzz_next.detach() + c)*her_used + (1-her_used)
+                if clip: 
+                    return alpha*torch.clamp(x, 1/clip_scale, clip_scale)
+                else: 
+                    return alpha*x
+
+            def her_w(alpha, clip=False):  
+                x = (p0.detach() + c)/(alpha*p0.detach() + (1-alpha)*p_next_value.detach() + c)*her_used + (1-her_used)
+                if clip: 
+                    return (1-alpha)*torch.clamp(x, 1/clip_scale, clip_scale)
+                else: 
+                    return (1-alpha)*x
+
+            # # true_ratio = (p_num+c)/(p_denom + c)
+            clip_scale = 1+self.args.ratio_clip#1.4
+            # # true_ratio = torch.clamp(true_ratio, 1/clip_scale, clip_scale)
+            # p_ratio = true_ratio*her_used + (1-her_used)
+            # q_ratio = torch.clamp((p0.detach() + c)/(p_next_value.detach() + c), 1/clip_scale, clip_scale)*her_used + (1-her_used)
+
+            # true_fuzz_ratio = (1-alpha)*(p_fuzz.detach() + c)/(alpha*p_fuzz.detach() + (1-alpha)*p_fuzz_next.detach() + c)
+            # # true_fuzz_ratio = torch.clamp(true_fuzz_ratio, 1/clip_scale, clip_scale)
+
+            # true_fuzz_ratio = torch.clamp(true_fuzz_ratio, 1/clip_scale, clip_scale)
+            # critic_loss = ((q_ratio*(target_q_value - q0).pow(2) + p_ratio*(((p0).pow(2)  - (t-1)/t*(p0*target_p_value))*her_used)).mean()
+            #         + (true_fuzz_ratio*her_used*((p_fuzz).pow(2)- (t-1)/t*p_fuzz*p_fuzz_next)).mean()) - 2*(realized_p/t).mean()
+            clip = lambda x: torch.clamp(x, 1/clip_scale, clip_scale)
+
+            _, on_policy_input = self.get_input_tensor(transitions['obs'], transitions['ag_next'], transitions['policy_g'])
+            _ , realized_p = self.critic_1(on_policy_input, map_t(t), actions_tensor, return_p=True)
+
+            # target_q_fuzz_value = torch.tensor(transitions['alt_r'], dtype=torch.float32)  + self.args.gamma * q_fuzz_next
+            # q_loss  = (clip(her_w(q_alpha))*(target_q_value - q0).pow(2)).mean()
+            # q_loss += (clip(indep_w(q_alpha))*(target_q_fuzz_value - q_fuzz).pow(2)).mean()
+            # p_loss = (her_w(p_alpha)*(((target_p_value - p0).pow(2))*her_used)).mean()
+            # p_loss += (indep_w(p_alpha)*her_used*((p_fuzz).pow(2))).mean()# - 2*(realized_p/t).mean()/100
+            target_q_fuzz_value = torch.tensor(transitions['alt_r'], dtype=torch.float32)  + self.args.gamma * q_fuzz_next
+            q_loss  = (her_w(q_alpha, clip=True)*(target_q_value - q0).pow(2)).mean()
+            q_loss += (indep_w(q_alpha, clip=True)*(target_q_fuzz_value - q_fuzz).pow(2)).mean()
+            # p_loss = (her_w(p_alpha)*(((target_p_value - p0).pow(2))*her_used)).mean()
+            # p_loss += (indep_w(p_alpha)*her_used*((p_fuzz - (t-1)/t*p_fuzz_next).pow(2))).mean()# - 2*(realized_p/t).mean()/100
+            p_loss = (her_w(p_alpha)*(((p0).pow(2)  - (t-1)/t*(p0*target_p_value))*her_used)).mean()
+            p_loss += (indep_w(p_alpha)*her_used*((p_fuzz).pow(2)- (t-1)/t*p_fuzz*p_fuzz_next)).mean() - 2*(realized_p/t).mean()/100
+            # p_loss = ((((target_p_value - p0).pow(2))*her_used)).mean()
+            # p_loss += (her_used*((p_fuzz - (t-1)/t*p_fuzz_next).pow(2))).mean()# - 2*(realized_p/t).mean()/100
+
+            critic_loss = q_loss + p_loss*clip_return
         # critic_loss = critic_loss + 
 
-        if split_p_evals: 
-            alt_input = inputs_norm_tensor_pol.clone()
-            goal = self.env_params['goal']
-            # alt_goals = torch.normal(mean=torch.zeros_like(alt_input[:, -2*goal:-goal]), std=1)
-            alt_goals = torch.tensor(transitions['policy_g'])
-            # alt_goals += torch.normal(mean=torch.zeros_like(alt_input[:, -2*goal:-goal]), std=.02)
-            alt_input[:, -2*goal:-goal] = alt_goals
-            alt_q_next_value, alt_p_next_value = self.critic_target_1(inputs_next_norm_tensor_pol, map_t(t-1), actions_next, return_p=True)
-            alt_q0, alt_p0 = self.critic_1(alt_input, map_t(t), actions_tensor, return_p=True)
-            critic_loss += (alt_p0 - self.args.gamma*alt_p_next_value).pow(2).mean()*.1#/10#*clip_return
     else: 
         true_ratio = 1
         critic_loss = (true_ratio*((target_q_value - q0).pow(2))).mean() + (target_p_value - p0).pow(2).mean()*clip_return
@@ -175,13 +223,13 @@ class ValueEstimator:
     return critic_loss
 
 
-  # def _soft_update_target_network(self, target, source):
-  #   for target_param, param in zip(target.parameters(), source.parameters()):
-  #       target_param.data.copy_((1 - self.args.polyak) * param.data + self.args.polyak * target_param.data)
   def _soft_update_target_network(self, target, source):
-    self.polyak_scale*=self.polyak_decay
     for target_param, param in zip(target.parameters(), source.parameters()):
-        target_param.data.copy_((1 - (self.polyak_base- self.polyak_scale)) * param.data + (self.polyak_base- self.polyak_scale) * target_param.data)
+        target_param.data.copy_((1 - self.args.polyak) * param.data + self.args.polyak * target_param.data)
+  # def _soft_update_target_network(self, target, source):
+  #   self.polyak_scale*=self.polyak_decay
+  #   for target_param, param in zip(target.parameters(), source.parameters()):
+  #       target_param.data.copy_((1 - (self.polyak_base- self.polyak_scale)) * param.data + (self.polyak_base- self.polyak_scale) * target_param.data)
 
   def update(self, preprocced_tuple, actor, transitions):
     # Update Q-functions by one step of gradient descent
@@ -212,6 +260,7 @@ class ddpg_agent:
         self.actor_network = actor(env_params)
         # self.critic_network = critic(env_params)
         self.critic = ValueEstimator(env_params, args)
+        self.critic.get_input_tensor = self.get_input_tensor
         self.planning_critic = self.critic#ValueEstimator(env_params, args)
         # sync the networks across the cpus
         sync_networks(self.actor_network)
@@ -241,6 +290,16 @@ class ddpg_agent:
         self.o_norm = normalizer(size=env_params['obs'], default_clip_range=self.args.clip_range)
         self.g_norm = normalizer(size=env_params['goal'], default_clip_range=self.args.clip_range)
         # create the dict for store the model
+        if args.apply_ratio: 
+            agent_name = "usher"
+        elif args.two_goal: 
+            agent_name = "two-goal"
+        elif args.replay_k == 0:
+            agent_name = "q-learning"
+        else:
+            agent_name = "her"
+        key = f"name_{args.env_name}__noise_{args.action_noise}__agent_{agent_name}.txt"
+        self.recording_path = "logging/recordings/" + key
         if MPI.COMM_WORLD.Get_rank() == 0:
             if not os.path.exists(self.args.save_dir):
                 os.mkdir(self.args.save_dir)
@@ -248,6 +307,10 @@ class ddpg_agent:
             self.model_path = os.path.join(self.args.save_dir, self.args.env_name)
             if not os.path.exists(self.model_path):
                 os.mkdir(self.model_path)
+
+            with open(self.recording_path, "w") as file: 
+                file.write("")
+
 
         self.normalize = True
         self.vel_goal = vel_goal
@@ -342,6 +405,13 @@ class ddpg_agent:
             ev = self._eval_agent()
             self.actor_network.train()
             success_rate, reward, value = ev['success_rate'], ev['reward_rate'], ev['value_rate']
+
+            import time
+            time.sleep(np.random.rand()*5)
+            with open(self.recording_path, "a") as file: 
+                file.write(f"{epoch}, {success_rate:.3f}, {reward:.3f}, {value:.3f}\n")
+
+
             if MPI.COMM_WORLD.Get_rank() == 0:
                 # print('[{}] epoch is: {}, eval success rate is: {:.3f}, average reward is: {:.3f}'.format(datetime.now(), epoch, success_rate, reward))
                 print(f'[{datetime.now()}] epoch is: {epoch}, '
@@ -350,7 +420,6 @@ class ddpg_agent:
                     f'average value is: {value:.3f}')
                 torch.save([self.o_norm.mean, self.o_norm.std, self.g_norm.mean, self.g_norm.std, self.actor_network.state_dict()], \
                             self.model_path + '/model.pt')
-
 
     # pre_process the inputs
     def _preproc_inputs(self, obs, g, gpi=None):
@@ -425,7 +494,18 @@ class ddpg_agent:
     #     self.polyak_scale*=self.polyak_decay
     #     for target_param, param in zip(target.parameters(), source.parameters()):
     #         target_param.data.copy_((1 - (self.polyak_base- self.polyak_scale)) * param.data + (self.polyak_base- self.polyak_scale) * target_param.data)
+    def get_input_tensor(self, obs, goal, policy_goal):
+        obs_norm = self.o_norm.normalize(obs)
+        g_norm = self.g_norm.normalize(goal)
+        pol_g_norm = self.g_norm.normalize(policy_goal)
 
+        inputs_norm = np.concatenate([obs_norm, g_norm], axis=1)
+        inputs_norm_pol = np.concatenate([obs_norm, g_norm, pol_g_norm], axis=1)
+
+        inputs_norm_tensor = torch.tensor(inputs_norm, dtype=torch.float32)
+        inputs_norm_tensor_pol = torch.tensor(inputs_norm_pol, dtype=torch.float32)
+
+        return inputs_norm_tensor, inputs_norm_tensor_pol
 
     # update the network
     def _update_network(self):
@@ -515,7 +595,8 @@ class ddpg_agent:
                 value = self.critic.min_critic(input_tensor_pol, t, actions_tensor).mean().numpy().squeeze()
                 total_value += value
 
-            for t in range(self.env_params['max_timesteps']):
+            # for t in range(self.env_params['max_timesteps']):
+            for t in range(int(3/(1-self.args.gamma))):
                 with torch.no_grad():
                     input_tensor = self._preproc_inputs(obs, g)
                     pi = self.actor_network(input_tensor)
@@ -531,6 +612,10 @@ class ddpg_agent:
                 obs = observation_new['observation']
                 g = observation_new['desired_goal']
                 per_success_rate.append(info['is_success'])
+            # if info['is_success']:
+            #     total_r += self.args.gamma**self.env_params['max_timesteps']*self.env.max_reward
+            # else: 
+            #     total_r += self.args.gamma**self.env_params['max_timesteps']*self.env.min_reward
             total_success_rate.append(per_success_rate)
             total_reward_rate.append(total_r)
             total_value_rate.append(total_value)
@@ -552,3 +637,71 @@ class ddpg_agent:
             'value_rate': global_value_rate / MPI.COMM_WORLD.Get_size(), 
             }
 
+
+    def render_run(self, i):
+        per_success_rate = []
+        observation = self.env.reset()
+        obs = observation['observation']
+        g = observation['desired_goal']
+        from display import display_init, draw_grid
+        env_name = self.args.env_name
+        display_init(self.env.env)
+        draw_grid(self.env.env, plot_agent = True, filename=f"{env_name}_{0}")
+
+        for t in range(int(3/(1-self.args.gamma))):
+            draw_grid(self.env.env, plot_agent = True, filename=f"{env_name}_{i}_{t}")
+            with torch.no_grad():
+                input_tensor = self._preproc_inputs(obs, g)
+                pi = self.actor_network(input_tensor)
+                actions = pi.detach().cpu().numpy().squeeze(axis=0)
+
+            observation_new, r, _, info = self.env.step(actions)
+            obs = observation_new['observation']
+            g = observation_new['desired_goal']
+            per_success_rate.append(info['is_success'])
+        final_t = t + 1
+        draw_grid(self.env.env, plot_agent = True, filename=f"{env_name}_{i}_{final_t}")
+
+
+    def record_run(self, i):
+        per_success_rate = []
+        observation = self.env.reset()
+        obs = observation['observation']
+        g = observation['desired_goal']
+        from display import display_init, draw_grid
+        import pickle
+        env_name = self.args.env_name
+
+        def dump(env, filename): 
+            #Env is not pickleable, so copy out stuff thats important for display()
+            obj = Object()
+            obj.grid = env.grid
+            obj.state = env.state
+            obj.start = env.start
+            obj.goal = env.goal
+            obj.width = env.width
+            obj.length = env.length
+            obj.path = env.path
+
+            obj.env = Object()
+            # obj.env.state_to_goal = env.env.state_to_goal
+            obj.env.env = env.env.env
+            obj.env.state_to_goal = obj.env.env.state_to_goal
+            obj.env.state_to_obs = obj.env.env.state_to_obs
+            obj.env.state_to_rot = obj.env.env.state_to_rot
+            pickle.dump(obj, open(filename, "wb"))
+
+        for t in range(int(3/(1-self.args.gamma))):            
+            dump(self.env.env, f"logging/path_recordings/{env_name}_{i}_{t}")
+            with torch.no_grad():
+                input_tensor = self._preproc_inputs(obs, g)
+                pi = self.actor_network(input_tensor)
+                actions = pi.detach().cpu().numpy().squeeze(axis=0)
+
+            observation_new, r, _, info = self.env.step(actions)
+            obs = observation_new['observation']
+            g = observation_new['desired_goal']
+            per_success_rate.append(info['is_success'])
+        dump(self.env.env, f"{env_name}_{i}_{t}")
+
+class Object(object):  pass
