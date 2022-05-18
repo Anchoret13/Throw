@@ -115,7 +115,7 @@ do
 			for i in 0 1 2 3 #5 6 
 			do 
 				( echo "running $env_name, $noise noise, 2-goal ratio with delta-probability";
-				$command --action-noise=$noise --seed=$(($RANDOM % $RANGE)) --two-goal --apply-ratio) # --delta-agent) 
+				$command --action-noise=$noise --seed=$(($RANDOM % $RANGE)) --two-goal --apply-ratio --delta-agent) 
 			done
 		done
 
