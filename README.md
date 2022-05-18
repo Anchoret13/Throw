@@ -1,2 +1,2 @@
-# pybullet_env
-gym-style pybullet environment for USHER
+# THROW TASK
+```python .\train_HER.py --env-name=Throwing```
