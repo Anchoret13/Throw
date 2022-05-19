@@ -10,8 +10,8 @@ for env_name in 'Throwing'
 do
 	logfile="logging/$env_name.txt"
 	# echo "" > $logfile
-	N=6
-	epochs=100
+	N=1
+	epochs=50
 	agent="train_HER.py"
 	command="mpirun -np $N python -u $agent --env-name=$env_name $args --n-epochs=$epochs --ratio-offset=$offset --replay-k=$k --ratio-clip=$clip"
 	delta_command="mpirun -np $N python -u $delta_agent --env-name=$env_name $args --n-epochs=$epochs --ratio-offset=$offset --replay-k=$k --ratio-clip=$clip"
