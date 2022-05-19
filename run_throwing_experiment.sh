@@ -16,7 +16,7 @@ do
 	command="mpirun -np $N python -u $agent --env-name=$env_name $args --n-epochs=$epochs --ratio-offset=$offset --replay-k=$k --ratio-clip=$clip"
 	delta_command="mpirun -np $N python -u $delta_agent --env-name=$env_name $args --n-epochs=$epochs --ratio-offset=$offset --replay-k=$k --ratio-clip=$clip"
 	echo "command=$command"
-	for noise in 0.02 
+	for noise in 0.01
 	do 
 		echo -e "\nrunning $env_name, $noise noise, 2-goal ratio with delta-probability" >> $logfile
 		rec_file="logging/recordings/name_$env_name""__noise_$noise""__agent_usher.txt"
