@@ -11,6 +11,7 @@ import torch
 sys.path.append('./pybullet_env')
 # from pybullet_env import environment, utilities, robot
 from environment import make_throwing_env
+# from save_state_env import make_throwing_env
 # from pybullet_env.utilities import *
 
 
@@ -118,7 +119,13 @@ def launch(args):
 
 
     ddpg_trainer = ddpg_agent(args, env, env_params)
-    ddpg_trainer.learn()
+
+    if args.resume == True:
+        ddpg_trainer.resume_learning()
+    else:
+        ddpg_trainer.learn()
+
+    # ddpg_trainer.learn()
     return ddpg_trainer
 
 if __name__ == '__main__':
@@ -131,7 +138,8 @@ if __name__ == '__main__':
     # print(args)
     # exit()
 
-    from HER.rl_modules.generalized_usher_with_ratio_2 import ddpg_agent
+    # from HER.rl_modules.generalized_usher_with_ratio_2 import ddpg_agent
+    from HER.rl_modules.generalized_usher_resume_test import ddpg_agent
     suffix = ""
 
     agent = launch(args)

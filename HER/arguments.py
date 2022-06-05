@@ -49,6 +49,9 @@ def get_args():
     parser.add_argument('--ratio-offset', type=float, default=0.1, help='offset of ratio used in correcting HER values')
     parser.add_argument('--ratio-clip', type=float, default=.3, help='clip ratio to reduce variance')
 
+    parser.add_argument('--resume', type = bool, default = False, help = 'resume from previous training or train from scratch')
+    parser.add_argument('--resume-path', type = str, default = './train_info5.pkl', help = 'resume pickle path')
+
     args = parser.parse_args()
 
     return args
