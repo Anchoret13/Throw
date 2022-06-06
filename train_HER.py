@@ -10,8 +10,8 @@ import torch
 
 sys.path.append('./pybullet_env')
 # from pybullet_env import environment, utilities, robot
-from environment import make_throwing_env
-# from save_state_env import make_throwing_env
+# from environment import make_throwing_env
+from save_state_env import make_throwing_env
 # from pybullet_env.utilities import *
 
 
