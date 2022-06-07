@@ -152,9 +152,18 @@ class Throwing(gym.core.GoalEnv):
         d = self.goal_distance(achieved_goal, desired_goal)
         print(d)
         return (d<self.distance_threshold)
-
-    # def step(self, ):
-
+    
+    def add_random_force_to_object(self):
+        # pass
+        random_force_range_x = 0
+        random_force_range_y = 0
+        random_force_range_z = 1
+        forceX = np.random.rand() * random_force_range_x - random_force_range_x/2
+        forceY = np.random.rand() * random_force_range_y - random_force_range_y/2
+        forceZ = np.random.rand() * random_force_range_z - random_force_range_z/2
+        random_force = [forceX,forceY,forceZ]
+        ball_pos = self.get_ball_obs()
+        p.applyExternalForce(self.ball, -1, random_force, ball_pos, flags = p.WORLD_FRAME)
 
     def step(self, action, control_method='end'):
         """
@@ -164,7 +173,7 @@ class Throwing(gym.core.GoalEnv):
         assert control_method in ('end', 'joint')
         
 
-        gas = action[-1]*3
+        gas = action[-1]*5
         grip = (action[7]+1)/2*0.085
         self.robot.move_ugv(gas)
         base_pos, _ = p.getBasePositionAndOrientation(self.robot.id)
@@ -187,6 +196,10 @@ class Throwing(gym.core.GoalEnv):
             self.uptown_funk(delta_t-release_time)
         # self.uptown_funk(release_time)
         
+        ratio = np.random.rand()
+        # if ratio<0.3:
+        #     self.add_random_force_to_object()
+        self.add_random_force_to_object()
         # self.uptown_funk(100)
         state = self.get_state()
         achieved_goal = state['achieved_goal']
@@ -215,14 +228,15 @@ class Throwing(gym.core.GoalEnv):
         # velocity = []
         velocity, angular_velocity = p.getBaseVelocity(self.ball)
         # return dict(position = position, velocity = velocity)
+        # position = position
         return position
 
     def sample_goal(self):
         sample_x = -0.5 -3 * np.random.random()
         sample_y = (0.8 - 1.6 * np.random.random()) + 0.5
-        sample_z = 0
-        goal = (sample_x, sample_y, sample_z)
+        # sample_z = 0
         # goal = (sample_x, sample_y, sample_z)
+        goal = (sample_x, sample_y)
         return goal
 
     def get_state(self):
@@ -231,7 +245,7 @@ class Throwing(gym.core.GoalEnv):
         obs = joint_position + joint_velocity + ee_pos
         
         # ACHIEVED GOAL
-        achieved_goal = self.get_ball_obs()
+        achieved_goal = self.get_ball_obs()[:2]
 
         # DESIRED GOAL
         desired_goal = self.goal
@@ -289,7 +303,7 @@ class Throwing(gym.core.GoalEnv):
         self.goal = self.sample_goal()
         ### goal visualization
         # p.removeBody(self.goal_vis)
-        self.goal_vis = p.loadURDF('./urdf/block/brick_0.3/brick.urdf', self.goal, p.getQuaternionFromEuler([0, 0, 0]))
+        self.goal_vis = p.loadURDF('./urdf/block/brick_0.3/brick.urdf', self.goal  +(0,), p.getQuaternionFromEuler([0, 0, 0]))
         self.robot.reset()
         self.reset_env()
         state = self.get_state()

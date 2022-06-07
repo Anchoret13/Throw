@@ -260,7 +260,7 @@ class ddpg_agent:
             
                 if epoch % 5 == 0:
                     self.save_current(epoch)
-                self.save_current(epoch)
+                # self.save_current(epoch)
 
 
     # pre_process the inputs

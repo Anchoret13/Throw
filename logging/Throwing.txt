@@ -14,3 +14,4 @@ running Throwing, 0.0 noise, 1-goal
 running Throwing, 0.02 noise, 2-goal ratio with delta-probability
 
 running Throwing, 0.02 noise, 2-goal ratio with delta-probability
+action_noise: 0.02, 	two_goal: True, 	success_rate: 0.6132291666666666

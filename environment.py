@@ -158,7 +158,7 @@ class Throwing(gym.core.GoalEnv):
         assert control_method in ('end', 'joint')
         
 
-        gas = action[-1]*3
+        gas = action[-1]*7
         grip = (action[7]+1)/2*0.085
         self.robot.move_ugv(gas)
         base_pos, _ = p.getBasePositionAndOrientation(self.robot.id)
@@ -302,7 +302,7 @@ def make_throwing_env():
                         (0, 0, 1),
                         0.1, 5, (320, 320), 40)
     robot = HuskyUR5((-0.2, 0.5, 0.5), (0, 0, 0))
-    return  Throwing(robot, ycb_models, camera, vis=False)
+    return  Throwing(robot, ycb_models, camera, vis=True)
 
 if __name__ == "__main__":
     env = make_throwing_env()
