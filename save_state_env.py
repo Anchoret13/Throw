@@ -5,6 +5,7 @@ import random
 import numpy as np
 import pybullet as p
 import pybullet_data
+from config import MAX_GOAL_DIST
 
 from utilities import Models, Camera, YCBModels
 from collections import namedtuple
@@ -14,6 +15,7 @@ from math import pi
 import gym
 from gym import spaces
 import os
+from config import *
 module_path = os.path.dirname(__file__)
 
 class FailToReachTargetError(RuntimeError):
@@ -110,6 +112,8 @@ class Throwing(gym.core.GoalEnv):
         }
         '''
         self.goal = self.sample_goal()
+        self.integration_step = 0.01
+        p.setTimeStep(self.integration_step)
 
         self.distance_threshold = 0.4
         self.reward_type = 'sparse'
@@ -130,7 +134,8 @@ class Throwing(gym.core.GoalEnv):
 
     def uptown_funk(self, time = 120):
         # STOP! WAIT A MINUTE
-        for _ in range(time):  
+        steps = int(time/self.integration_step)
+        for _ in range(steps):  
             self.step_simulation()
 
     def noise_force(self):
@@ -155,15 +160,17 @@ class Throwing(gym.core.GoalEnv):
     
     def add_random_force_to_object(self):
         # pass
-        random_force_range_x = 0
-        random_force_range_y = 0
-        random_force_range_z = 1
-        forceX = np.random.rand() * random_force_range_x - random_force_range_x/2
-        forceY = np.random.rand() * random_force_range_y - random_force_range_y/2
-        forceZ = np.random.rand() * random_force_range_z - random_force_range_z/2
-        random_force = [forceX,forceY,forceZ]
+        # random_force_range_x = 0
+        # random_force_range_y = 0
+        # random_force_range_z = 1
+        # forceX = np.random.rand() * random_force_range_x - random_force_range_x/2
+        # forceY = np.random.rand() * random_force_range_y - random_force_range_y/2
+        # forceZ = np.random.rand() * random_force_range_z - random_force_range_z/2
+        # random_force = [forceX,forceY,forceZ]
+        random_force = self.wind_vector.tolist()
         ball_pos = self.get_ball_obs()
-        p.applyExternalForce(self.ball, -1, random_force, ball_pos, flags = p.WORLD_FRAME)
+        if ball_pos[-1] > 0.06:
+            p.applyExternalForce(self.ball, -1, random_force, ball_pos, flags = p.WORLD_FRAME)
 
     def step(self, action, control_method='end'):
         """
@@ -173,7 +180,7 @@ class Throwing(gym.core.GoalEnv):
         assert control_method in ('end', 'joint')
         
 
-        gas = action[-1]*5
+        gas = action[-1]*MAX_SPEED
         grip = (action[7]+1)/2*0.085
         self.robot.move_ugv(gas)
         base_pos, _ = p.getBasePositionAndOrientation(self.robot.id)
@@ -185,8 +192,8 @@ class Throwing(gym.core.GoalEnv):
         absolute_pos[3:6] = (absolute_pos[3:6] + 1/2)*pi
 
         self.robot.move_ee(absolute_pos, control_method)
-        delta_t = 50
-        release_time = int((action[-2] + 1)/2* delta_t)
+        delta_t = .2
+        release_time = (action[-2] + 1)/2* delta_t
         if release_time > delta_t:
             self.uptown_funk(delta_t)
 
@@ -196,7 +203,7 @@ class Throwing(gym.core.GoalEnv):
             self.uptown_funk(delta_t-release_time)
         # self.uptown_funk(release_time)
         
-        ratio = np.random.rand()
+        # ratio = np.random.rand()
         # if ratio<0.3:
         #     self.add_random_force_to_object()
         self.add_random_force_to_object()
@@ -226,13 +233,13 @@ class Throwing(gym.core.GoalEnv):
     def get_ball_obs(self):
         position, ori = p.getBasePositionAndOrientation(self.ball)
         # velocity = []
-        velocity, angular_velocity = p.getBaseVelocity(self.ball)
+        # velocity, angular_velocity = p.getBaseVelocity(self.ball)
         # return dict(position = position, velocity = velocity)
         # position = position
         return position
 
     def sample_goal(self):
-        sample_x = -0.5 -3 * np.random.random()
+        sample_x = -0.5 - MAX_GOAL_DIST * np.random.random()
         sample_y = (0.8 - 1.6 * np.random.random()) + 0.5
         # sample_z = 0
         # goal = (sample_x, sample_y, sample_z)
@@ -289,15 +296,15 @@ class Throwing(gym.core.GoalEnv):
         # after initialize the position of the ball and cube, grasp the ball as initial state
         
         self.robot.move_ee((0, -0.15, 0.75, 1.570796251296997, 1.570796251296997, 1.570796251296997),'end')
-        self.uptown_funk(120)
+        self.uptown_funk(0.5)
         self.robot.open_gripper()
         self.robot.move_ee((0, -0.15, 0.50, 1.570796251296997, 1.570796251296997, 1.570796251296997),'end')        
-        self.uptown_funk(120)
+        self.uptown_funk(0.5)
         self.robot.close_gripper()
-        self.uptown_funk(120)
+        self.uptown_funk(0.5)
 
         self.robot.move_ee((0, -0.15, 0.7, 1.570796251296997, 1.570796251296997, 1.570796251296997),'end')
-        self.uptown_funk(120)
+        self.uptown_funk(0.5)
 
     def old_reset(self):
         self.goal = self.sample_goal()
@@ -312,6 +319,10 @@ class Throwing(gym.core.GoalEnv):
     def reset(self):        
         self.goal = self.sample_goal()
         p.restoreState(self.saved_state)
+        if np.random.rand() < WIND_CHANCE:
+            self.wind_vector = np.random.normal(np.zeros(3), np.array([WIND_FORCE, WIND_FORCE, 0]))
+        else:
+            self.wind_vector = np.zeros(3)
         state = self.get_state()
         return state
 
@@ -328,11 +339,11 @@ def make_throwing_env():
                         (0, 0, 1),
                         0.1, 5, (320, 320), 40)
     robot = HuskyUR5((-0.2, 0.5, 0.5), (0, 0, 0))
-    # return  Throwing(robot, ycb_models, camera, vis=False)
     return  Throwing(robot, ycb_models, camera, vis=False)
+    # return  Throwing(robot, ycb_models, camera, vis=True)
 
 if __name__ == "__main__":
-    env = make_throwing_env()
+    env = make_throwing_env(vis=True)
     env.reset()
     for i in range(50):
         state, reward, done, info = env.step(np.array((-0, -0, 0.9, 0, 0, 0, 0.1, 0.5, -.5)))
