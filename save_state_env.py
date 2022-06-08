@@ -239,7 +239,7 @@ class Throwing(gym.core.GoalEnv):
         return position
 
     def sample_goal(self):
-        sample_x = -0.5 - MAX_GOAL_DIST * np.random.random()
+        sample_x = -(MIN_GOAL_DIST + (MAX_GOAL_DIST - MIN_GOAL_DIST) * np.random.random())
         sample_y = (0.8 - 1.6 * np.random.random()) + 0.5
         # sample_z = 0
         # goal = (sample_x, sample_y, sample_z)

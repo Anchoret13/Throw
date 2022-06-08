@@ -507,7 +507,8 @@ class ddpg_agent:
                 value = self.critic_network(inputs_norm_tensor, torch.tensor([[1]]), actions_tensor).mean().numpy().squeeze()
                 total_value += value
 
-            for t in range(self.env_params['max_timesteps']):
+            #for t in range(self.env_params['max_timesteps']):
+            for t in range(int(3/(1-self.args.gamma))):
                 with torch.no_grad():
                     pi = self.actor_network.normed_forward(obs, g, deterministic=True)
                     inputs_norm_tensor = self._preproc_inputs(obs, g, gpi=g)
