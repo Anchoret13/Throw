@@ -208,8 +208,9 @@ class HuskyUR5(UR5Robotiq85):
             p.setJointMotorControl(self.husky, joint, p.VELOCITY_CONTROL, velocity, maxForce)
 
     def reset_car(self):
-        p.removeBody(self.husky)
-        self.husky = p.loadURDF("urdf/husky.urdf", self.husky_pose, self.husky_orn, useFixedBase=False)
+        # p.removeBody(self.husky)
+        # self.husky = p.loadURDF("urdf/husky.urdf", self.husky_pose, self.husky_orn, useFixedBase=False)
+        # p.resetBasePositionAndOrientation(self.husky, self.husky_pose, self.husky_orn)
         c = p.createConstraint(self.husky, -1,
                                self.id, -1, 
                                jointType = p.JOINT_FIXED, 
@@ -222,9 +223,10 @@ class HuskyUR5(UR5Robotiq85):
         """
         reset to rest poses
         """
-        p.removeBody(self.id)
-        self.id = p.loadURDF('./urdf/ur5_robotiq_85.urdf', self.base_pos, self.base_ori,
-                             useFixedBase=False, flags=p.URDF_ENABLE_CACHED_GRAPHICS_SHAPES)
+        # p.removeBody(self.id)
+        # self.id = p.loadURDF('./urdf/ur5_robotiq_85.urdf', self.base_pos, self.base_ori,
+        #                      useFixedBase=False, flags=p.URDF_ENABLE_CACHED_GRAPHICS_SHAPES)
+        # p.resetBasePositionAndOrientation(self.id , self.base_pos, self.base_ori)
         for rest_pose, joint_id in zip(self.arm_rest_poses, self.arm_controllable_joints):
             p.resetJointState(self.id, joint_id, rest_pose)
 
@@ -237,6 +239,9 @@ class HuskyUR5(UR5Robotiq85):
 
     def reset(self):
         print(self.joints)
+        # self.reset_gripper()
+        # self.reset_car()
+        # self.reset_arm()
         self.reset_arm()
         self.reset_gripper()
         self.reset_car()
